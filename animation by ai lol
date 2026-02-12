@@ -1,0 +1,200 @@
+-- Standalone Animation Player Module
+-- Usage: Set the SELECTED_EMOTE variable to choose which animation to play
+
+local AnimationPlayer = {}
+
+-- ========================================
+-- CONFIGURATION
+-- ========================================
+
+-- Choose your emote here (options: "sleep", "floss", "hype", or set custom asset ID)
+local SELECTED_EMOTE = "sleep"
+
+-- Emote library
+local EMOTES = {
+    ["sleep"] = "10714360343",
+    ["floss"] = "10714340543",
+    ["hype"] = "10714369624",
+    -- Add more custom emotes below
+    -- ["wave"] = "123456789",
+    -- ["dance"] = "987654321",
+}
+
+-- Or use a custom asset ID directly (number as string)
+local CUSTOM_ASSET_ID = "15609995579"
+
+-- ========================================
+-- SERVICES & VARIABLES
+-- ========================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+
+local AnimationTrack = nil
+local AnimationObject = nil
+local CharacterConnection = nil
+
+-- ========================================
+-- FUNCTIONS
+-- ========================================
+
+-- Get the asset ID based on current selection
+local function GetAnimationId()
+    if EMOTES[SELECTED_EMOTE] then
+        return "rbxassetid://" .. EMOTES[SELECTED_EMOTE]
+    else
+        -- Treat SELECTED_EMOTE as a custom asset ID
+        return "rbxassetid://" .. (CUSTOM_ASSET_ID or SELECTED_EMOTE)
+    end
+end
+
+-- Load and play the animation
+local function LoadAnimation()
+    task.wait()
+    
+    -- Wait for character appearance to load
+    if not LocalPlayer:HasAppearanceLoaded() then
+        LocalPlayer.CharacterAppearanceLoaded:Wait()
+    end
+    
+    -- Update character and humanoid references
+    Character = LocalPlayer.Character
+    if not Character then return end
+    
+    Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    if not Humanoid then return end
+    
+    -- Stop previous animation if running
+    if AnimationTrack then
+        AnimationTrack:Stop()
+        AnimationTrack:Destroy()
+        AnimationTrack = nil
+    end
+    
+    -- Create new animation object if needed
+    if not AnimationObject then
+        AnimationObject = Instance.new("Animation")
+    end
+    
+    -- Set animation ID
+    AnimationObject.AnimationId = GetAnimationId()
+    
+    -- Load and play animation
+    AnimationTrack = Humanoid:LoadAnimation(AnimationObject)
+    AnimationTrack:Play()
+    
+    print("[Animation Player] Playing:", SELECTED_EMOTE, "(" .. AnimationObject.AnimationId .. ")")
+end
+
+-- ========================================
+-- MAIN FUNCTIONS
+-- ========================================
+
+-- Start the animation player
+function AnimationPlayer:Start()
+    if CharacterConnection then
+        warn("[Animation Player] Already running!")
+        return
+    end
+    
+    -- Create animation object
+    AnimationObject = Instance.new("Animation")
+    
+    -- Load initial animation
+    LoadAnimation()
+    
+    -- Handle character respawns
+    CharacterConnection = LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+        Character = newCharacter
+        Humanoid = Character:WaitForChild("Humanoid")
+        LoadAnimation()
+    end)
+    
+    print("[Animation Player] Started")
+end
+
+-- Stop the animation player
+function AnimationPlayer:Stop()
+    -- Disconnect character listener
+    if CharacterConnection then
+        CharacterConnection:Disconnect()
+        CharacterConnection = nil
+    end
+    
+    -- Stop animation
+    if AnimationTrack then
+        AnimationTrack:Stop()
+        AnimationTrack:Destroy()
+        AnimationTrack = nil
+    end
+    
+    -- Destroy animation object
+    if AnimationObject then
+        AnimationObject:Destroy()
+        AnimationObject = nil
+    end
+    
+    print("[Animation Player] Stopped")
+end
+
+-- Change the current emote
+function AnimationPlayer:SetEmote(emoteName)
+    SELECTED_EMOTE = emoteName
+    
+    if AnimationTrack then
+        LoadAnimation()
+    end
+end
+
+-- Add a custom emote to the library
+function AnimationPlayer:AddEmote(name, assetId)
+    EMOTES[name] = tostring(assetId)
+    print("[Animation Player] Added emote:", name, "->", assetId)
+end
+
+-- Get list of available emotes
+function AnimationPlayer:GetEmotes()
+    local emoteList = {}
+    for name, _ in pairs(EMOTES) do
+        table.insert(emoteList, name)
+    end
+    return emoteList
+end
+
+-- ========================================
+-- AUTO-START (optional, comment out if you want manual control)
+-- ========================================
+
+AnimationPlayer:Start()
+
+-- ========================================
+-- USAGE EXAMPLES
+-- ========================================
+
+--[[ 
+
+-- Change emote during runtime:
+AnimationPlayer:SetEmote("floss")
+
+-- Add a new custom emote:
+AnimationPlayer:AddEmote("wave", "1234567890")
+
+-- Stop the player:
+AnimationPlayer:Stop()
+
+-- Restart:
+AnimationPlayer:Start()
+
+-- Get list of available emotes:
+local emotes = AnimationPlayer:GetEmotes()
+for _, emote in ipairs(emotes) do
+    print(emote)
+end
+
+]]
+
+return AnimationPlayer
