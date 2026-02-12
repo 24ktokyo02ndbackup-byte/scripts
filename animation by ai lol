@@ -165,11 +165,6 @@ function AnimationPlayer:GetEmotes()
     return emoteList
 end
 
--- ========================================
--- AUTO-START (optional, comment out if you want manual control)
--- ========================================
-
-AnimationPlayer:Start()
 
 -- ========================================
 -- USAGE EXAMPLES
