@@ -1,0 +1,761 @@
+-- Standalone World Visuals Module
+-- Complete control over lighting, weather, atmosphere, and environment
+
+local WorldVisuals = {}
+
+-- ========================================
+-- CONFIGURATION
+-- ========================================
+
+local CONFIG = {
+    -- Background Noise
+    background_noise = {
+        enabled = false,
+        sound = "night", -- "windy winter", "light rain", "thunderstorm", "night", "day"
+        volume = 25 -- 0-100
+    },
+    
+    -- Lighting Mode
+    lighting_mode = {
+        enabled = false,
+        technology = "Future" -- "Compatibility", "ShadowMap", "Voxel", "Future", "Legacy"
+    },
+    
+    -- World Time
+    world_time = {
+        enabled = false,
+        hour = 14.5 -- 0-24
+    },
+    
+    -- Atmosphere
+    atmosphere = {
+        enabled = false,
+        color = Color3.fromRGB(255, 255, 255),
+        decay = Color3.fromRGB(120, 120, 120),
+        haze = 1,
+        glare = 10,
+        offset = 0,
+        density = 0.35
+    },
+    
+    -- Color Correction
+    saturation = {
+        enabled = false,
+        value = 0 -- -1 to 1
+    },
+    
+    contrast = {
+        enabled = false,
+        value = 0 -- -1 to 1
+    },
+    
+    tint = {
+        enabled = false,
+        color = Color3.fromRGB(255, 255, 255)
+    },
+    
+    -- Ambient Lighting
+    ambient = {
+        enabled = false,
+        indoor_color = Color3.fromRGB(140, 140, 140),
+        outdoor_color = Color3.fromRGB(140, 140, 140)
+    },
+    
+    -- Weather
+    weather = {
+        enabled = false,
+        type = "rain", -- "rain", "snow", "light rain"
+        color = Color3.fromRGB(255, 255, 255),
+        rate = 100 -- 1-100%
+    },
+    
+    -- Skybox
+    skybox = {
+        enabled = false,
+        preset = "black storm" -- "black storm", "blue space", "realistic", "stormy", "pink"
+    },
+    
+    -- Textures
+    textures = {
+        enabled = false,
+        pack = "minecraft" -- Currently only "minecraft"
+    }
+}
+
+-- ========================================
+-- SERVICES & VARIABLES
+-- ========================================
+
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local MaterialService = game:GetService("MaterialService")
+
+local Camera = Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Active instances
+local BackgroundSound = nil
+local AtmosphereInstance = nil
+local WeatherPart = nil
+local WeatherParticle = nil
+local TextureVariants = {}
+local UpdateConnection = nil
+
+-- Original lighting values
+local OriginalLighting = {
+    Technology = Lighting.Technology,
+    ClockTime = Lighting.ClockTime,
+    Ambient = Lighting.Ambient,
+    OutdoorAmbient = Lighting.OutdoorAmbient
+}
+
+-- Find or create color correction
+local ColorCorrection = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
+if not ColorCorrection then
+    ColorCorrection = Instance.new("ColorCorrectionEffect")
+    ColorCorrection.Parent = Lighting
+end
+
+local OriginalColorCorrection = {
+    Saturation = ColorCorrection.Saturation,
+    Contrast = ColorCorrection.Contrast,
+    TintColor = ColorCorrection.TintColor
+}
+
+-- Find sky
+local Sky = Lighting:FindFirstChildOfClass("Sky")
+if not Sky then
+    Sky = Instance.new("Sky")
+    Sky.Parent = Lighting
+end
+
+local OriginalSky = {
+    SkyboxBk = Sky.SkyboxBk,
+    SkyboxDn = Sky.SkyboxDn,
+    SkyboxFt = Sky.SkyboxFt,
+    SkyboxLf = Sky.SkyboxLf,
+    SkyboxRt = Sky.SkyboxRt,
+    SkyboxUp = Sky.SkyboxUp,
+    SunTextureId = Sky.SunTextureId,
+    MoonTextureId = Sky.MoonTextureId
+}
+
+-- ========================================
+-- SOUND LIBRARY
+-- ========================================
+
+local SOUNDS = {
+    ["windy winter"] = "rbxassetid://6046340391",
+    ["light rain"] = "rbxassetid://18862087062",
+    ["thunderstorm"] = "rbxassetid://4305545740",
+    ["night"] = "rbxassetid://179507208",
+    ["day"] = "rbxassetid://6189453706"
+}
+
+-- ========================================
+-- WEATHER PRESETS
+-- ========================================
+
+local WEATHER_TYPES = {
+    ["rain"] = {
+        Speed = NumberRange.new(60, 60),
+        LockedToPart = true,
+        Rate = 600,
+        Texture = "rbxassetid://1822883048",
+        EmissionDirection = Enum.NormalId.Bottom,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.25, 0.78),
+            NumberSequenceKeypoint.new(0.75, 0.78),
+            NumberSequenceKeypoint.new(1, 1)
+        }),
+        Lifetime = NumberRange.new(0.8, 0.8),
+        LightEmission = 0.05,
+        LightInfluence = 0.9,
+        Orientation = Enum.ParticleOrientation.FacingCameraWorldUp,
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 10),
+            NumberSequenceKeypoint.new(1, 10)
+        })
+    },
+    ["snow"] = {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.74),
+            NumberSequenceKeypoint.new(0.973, 0.77),
+            NumberSequenceKeypoint.new(1, 1)
+        }),
+        Texture = "http://www.roblox.com/asset/?id=99851851",
+        SpreadAngle = Vector2.new(50, 50),
+        Speed = NumberRange.new(30, 30),
+        LightEmission = 0.5,
+        Rate = 1000,
+        EmissionDirection = Enum.NormalId.Bottom,
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.33),
+            NumberSequenceKeypoint.new(0.551, 0.40),
+            NumberSequenceKeypoint.new(1, 0.33)
+        })
+    },
+    ["light rain"] = {
+        LockedToPart = true,
+        Rate = 500,
+        Squash = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 3),
+            NumberSequenceKeypoint.new(1, 3)
+        }),
+        LightInfluence = 0.3,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(0.435, 0),
+            NumberSequenceKeypoint.new(1, 0)
+        }),
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+        Speed = NumberRange.new(30, 50),
+        Lifetime = NumberRange.new(9, 9),
+        LightEmission = 0.5,
+        Brightness = 2,
+        EmissionDirection = Enum.NormalId.Bottom,
+        Orientation = Enum.ParticleOrientation.FacingCameraWorldUp,
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(1, 0.2)
+        })
+    }
+}
+
+-- ========================================
+-- SKYBOX PRESETS
+-- ========================================
+
+local SKYBOXES = {
+    ["default"] = OriginalSky,
+    ["stormy"] = {
+        SkyboxUp = "http://www.roblox.com/asset/?id=18703232671",
+        SkyboxBk = "http://www.roblox.com/asset/?id=18703245834",
+        SkyboxLf = "http://www.roblox.com/asset/?id=18703237556",
+        SkyboxDn = "http://www.roblox.com/asset/?id=18703243349",
+        SkyboxFt = "http://www.roblox.com/asset/?id=18703240532",
+        SkyboxRt = "http://www.roblox.com/asset/?id=18703235430",
+        SunTextureId = OriginalSky.SunTextureId,
+        MoonTextureId = OriginalSky.MoonTextureId
+    },
+    ["blue space"] = {
+        SkyboxLf = "rbxassetid://15536114370",
+        SkyboxUp = "rbxassetid://15536117282",
+        SkyboxRt = "rbxassetid://15536118762",
+        SkyboxFt = "rbxassetid://15536116141",
+        SkyboxDn = "rbxassetid://15536112543",
+        SkyboxBk = "rbxassetid://15536110634",
+        SunTextureId = OriginalSky.SunTextureId,
+        MoonTextureId = OriginalSky.MoonTextureId
+    },
+    ["pink"] = {
+        SkyboxUp = "rbxassetid://12216108877",
+        SkyboxLf = "rbxassetid://12216110170",
+        SkyboxRt = "rbxassetid://12216110471",
+        SkyboxFt = "rbxassetid://12216109489",
+        SkyboxBk = "rbxassetid://12216109205",
+        SkyboxDn = "rbxassetid://12216109875",
+        SunTextureId = OriginalSky.SunTextureId,
+        MoonTextureId = OriginalSky.MoonTextureId
+    },
+    ["black storm"] = {
+        SkyboxLf = "rbxassetid://15502507918",
+        SkyboxUp = "rbxassetid://15502511911",
+        SkyboxRt = "rbxassetid://15502509398",
+        SkyboxFt = "rbxassetid://15502510289",
+        SkyboxDn = "rbxassetid://15502508460",
+        SkyboxBk = "rbxassetid://15502511288",
+        SunTextureId = OriginalSky.SunTextureId,
+        MoonTextureId = OriginalSky.MoonTextureId
+    },
+    ["realistic"] = {
+        SkyboxUp = "rbxassetid://653719321",
+        SkyboxDn = "rbxassetid://653718790",
+        SkyboxLf = "rbxassetid://653719190",
+        SkyboxFt = "rbxassetid://653719067",
+        SkyboxRt = "rbxassetid://653718931",
+        SkyboxBk = "rbxassetid://653719502",
+        SunTextureId = OriginalSky.SunTextureId,
+        MoonTextureId = OriginalSky.MoonTextureId
+    }
+}
+
+-- ========================================
+-- TEXTURE PACKS
+-- ========================================
+
+local TEXTURE_PACKS = {
+    ["minecraft"] = {
+        Slate = "http://www.roblox.com/asset/?id=8676746437",
+        Grass = "http://www.roblox.com/asset/?id=9267183930",
+        Sand = "http://www.roblox.com/asset/?id=12624140843",
+        Wood = "http://www.roblox.com/asset/?id=3258599312",
+        Brick = "http://www.roblox.com/asset/?id=10777285622",
+        Concrete = "http://www.roblox.com/asset/?id=15622710576",
+        CorrodedMetal = "rbxassetid://78612695839404",
+        Metal = "http://www.roblox.com/asset/?id=121650613091353",
+        WoodPlanks = "http://www.roblox.com/asset/?id=8676581022"
+    }
+}
+
+local TextureRestores = {}
+
+-- ========================================
+-- BACKGROUND NOISE FUNCTIONS
+-- ========================================
+
+local function ApplyBackgroundNoise()
+    if BackgroundSound then
+        BackgroundSound:Destroy()
+        BackgroundSound = nil
+    end
+    
+    if CONFIG.background_noise.enabled then
+        local soundId = SOUNDS[CONFIG.background_noise.sound]
+        if soundId then
+            BackgroundSound = Instance.new("Sound")
+            BackgroundSound.SoundId = soundId
+            BackgroundSound.Volume = CONFIG.background_noise.volume / 65
+            BackgroundSound.Looped = true
+            BackgroundSound.Name = "WorldVisuals_BackgroundSound"
+            BackgroundSound.Parent = Workspace
+            BackgroundSound:Play()
+        end
+    end
+end
+
+-- ========================================
+-- LIGHTING FUNCTIONS
+-- ========================================
+
+local function ApplyLightingMode()
+    if CONFIG.lighting_mode.enabled then
+        local tech = CONFIG.lighting_mode.technology
+        Lighting.Technology = Enum.Technology[tech]
+    else
+        Lighting.Technology = OriginalLighting.Technology
+    end
+end
+
+local function ApplyWorldTime()
+    if CONFIG.world_time.enabled then
+        Lighting.ClockTime = CONFIG.world_time.hour
+    else
+        Lighting.ClockTime = OriginalLighting.ClockTime
+    end
+end
+
+-- ========================================
+-- ATMOSPHERE FUNCTIONS
+-- ========================================
+
+local function ApplyAtmosphere()
+    if AtmosphereInstance then
+        AtmosphereInstance:Destroy()
+        AtmosphereInstance = nil
+    end
+    
+    if CONFIG.atmosphere.enabled then
+        AtmosphereInstance = Instance.new("Atmosphere")
+        AtmosphereInstance.Color = CONFIG.atmosphere.color
+        AtmosphereInstance.Decay = CONFIG.atmosphere.decay
+        AtmosphereInstance.Haze = CONFIG.atmosphere.haze
+        AtmosphereInstance.Glare = CONFIG.atmosphere.glare
+        AtmosphereInstance.Offset = CONFIG.atmosphere.offset
+        AtmosphereInstance.Density = CONFIG.atmosphere.density
+        AtmosphereInstance.Parent = Lighting
+    end
+end
+
+-- ========================================
+-- COLOR CORRECTION FUNCTIONS
+-- ========================================
+
+local function ApplySaturation()
+    if CONFIG.saturation.enabled then
+        ColorCorrection.Saturation = CONFIG.saturation.value
+    else
+        ColorCorrection.Saturation = OriginalColorCorrection.Saturation
+    end
+end
+
+local function ApplyContrast()
+    if CONFIG.contrast.enabled then
+        ColorCorrection.Contrast = CONFIG.contrast.value
+    else
+        ColorCorrection.Contrast = OriginalColorCorrection.Contrast
+    end
+end
+
+local function ApplyTint()
+    if CONFIG.tint.enabled then
+        ColorCorrection.TintColor = CONFIG.tint.color
+    else
+        ColorCorrection.TintColor = OriginalColorCorrection.TintColor
+    end
+end
+
+-- ========================================
+-- AMBIENT LIGHTING FUNCTIONS
+-- ========================================
+
+local function ApplyAmbient()
+    if CONFIG.ambient.enabled then
+        Lighting.Ambient = CONFIG.ambient.indoor_color
+        Lighting.OutdoorAmbient = CONFIG.ambient.outdoor_color
+    else
+        Lighting.Ambient = OriginalLighting.Ambient
+        Lighting.OutdoorAmbient = OriginalLighting.OutdoorAmbient
+    end
+end
+
+-- ========================================
+-- WEATHER FUNCTIONS
+-- ========================================
+
+local function UpdateWeatherPosition()
+    if WeatherPart and Camera then
+        WeatherPart.CFrame = CFrame.new(Camera.CFrame.Position + Vector3.new(0, 20, 0))
+    end
+end
+
+local function ApplyWeather()
+    if WeatherPart then
+        WeatherPart:Destroy()
+        WeatherPart = nil
+        WeatherParticle = nil
+    end
+    
+    if CONFIG.weather.enabled then
+        -- Create weather part
+        WeatherPart = Instance.new("Part")
+        WeatherPart.Size = Vector3.new(40, 40, 85)
+        WeatherPart.CanCollide = false
+        WeatherPart.Transparency = 1
+        WeatherPart.Anchored = true
+        WeatherPart.Name = "WorldVisuals_Weather"
+        WeatherPart.Parent = Workspace
+        
+        -- Create particle emitter
+        local weatherData = WEATHER_TYPES[CONFIG.weather.type]
+        if weatherData then
+            WeatherParticle = Instance.new("ParticleEmitter")
+            for property, value in pairs(weatherData) do
+                WeatherParticle[property] = value
+            end
+            WeatherParticle.Color = ColorSequence.new(CONFIG.weather.color)
+            WeatherParticle.Rate = weatherData.Rate * (CONFIG.weather.rate / 100)
+            WeatherParticle.Parent = WeatherPart
+            
+            UpdateWeatherPosition()
+        end
+    end
+end
+
+-- ========================================
+-- SKYBOX FUNCTIONS
+-- ========================================
+
+local function ApplySkybox()
+    local skyboxData = CONFIG.skybox.enabled and SKYBOXES[CONFIG.skybox.preset] or SKYBOXES["default"]
+    
+    if skyboxData then
+        Sky.SkyboxBk = skyboxData.SkyboxBk
+        Sky.SkyboxDn = skyboxData.SkyboxDn
+        Sky.SkyboxFt = skyboxData.SkyboxFt
+        Sky.SkyboxLf = skyboxData.SkyboxLf
+        Sky.SkyboxRt = skyboxData.SkyboxRt
+        Sky.SkyboxUp = skyboxData.SkyboxUp
+        Sky.SunTextureId = skyboxData.SunTextureId
+        Sky.MoonTextureId = skyboxData.MoonTextureId
+    end
+end
+
+-- ========================================
+-- TEXTURE FUNCTIONS
+-- ========================================
+
+local function ApplyTextureToPart(part)
+    local texturePack = TEXTURE_PACKS[CONFIG.textures.pack]
+    if not texturePack then return end
+    
+    if part:IsA("MeshPart") or part:IsA("Part") then
+        local textureId = texturePack[part.Material.Name]
+        local isWhite = part.Color == Color3.fromRGB(254, 253, 255)
+        
+        if (textureId or isWhite) and part.Transparency < 0.8 then
+            if not TextureRestores[part] then
+                TextureRestores[part] = part.Color
+                part.Color = Color3.fromRGB(254, 253, 255)
+            end
+        end
+    end
+end
+
+local function ApplyTextures()
+    -- Clear existing variants
+    for _, variant in ipairs(TextureVariants) do
+        variant:Destroy()
+    end
+    TextureVariants = {}
+    
+    if CONFIG.textures.enabled then
+        local texturePack = TEXTURE_PACKS[CONFIG.textures.pack]
+        if not texturePack then return end
+        
+        -- Create material variants
+        for materialName, textureId in pairs(texturePack) do
+            if materialName ~= "Glass" then
+                local variant = Instance.new("MaterialVariant")
+                variant.MetalnessMap = textureId
+                variant.NormalMap = textureId
+                variant.BaseMaterial = Enum.Material[materialName]
+                variant.Name = materialName
+                variant.StudsPerTile = 5
+                variant.RoughnessMap = textureId
+                variant.ColorMap = textureId
+                variant.Parent = MaterialService
+                
+                table.insert(TextureVariants, variant)
+            end
+        end
+        
+        -- Apply to existing parts
+        local map = Workspace:FindFirstChild("MAP")
+        if map then
+            for _, descendant in ipairs(map:GetDescendants()) do
+                ApplyTextureToPart(descendant)
+            end
+        end
+    else
+        -- Restore original colors
+        for part, originalColor in pairs(TextureRestores) do
+            if part and part.Parent then
+                part.Color = originalColor
+            end
+        end
+        TextureRestores = {}
+    end
+end
+
+-- ========================================
+-- UPDATE LOOP
+-- ========================================
+
+local function OnHeartbeat()
+    if CONFIG.weather.enabled then
+        UpdateWeatherPosition()
+    end
+end
+
+-- ========================================
+-- PUBLIC API
+-- ========================================
+
+-- Apply all visual settings
+function WorldVisuals:ApplyAll()
+    ApplyBackgroundNoise()
+    ApplyLightingMode()
+    ApplyWorldTime()
+    ApplyAtmosphere()
+    ApplySaturation()
+    ApplyContrast()
+    ApplyTint()
+    ApplyAmbient()
+    ApplyWeather()
+    ApplySkybox()
+    ApplyTextures()
+end
+
+-- Apply specific visual
+function WorldVisuals:Apply(visualType)
+    if visualType == "background_noise" then ApplyBackgroundNoise()
+    elseif visualType == "lighting_mode" then ApplyLightingMode()
+    elseif visualType == "world_time" then ApplyWorldTime()
+    elseif visualType == "atmosphere" then ApplyAtmosphere()
+    elseif visualType == "saturation" then ApplySaturation()
+    elseif visualType == "contrast" then ApplyContrast()
+    elseif visualType == "tint" then ApplyTint()
+    elseif visualType == "ambient" then ApplyAmbient()
+    elseif visualType == "weather" then ApplyWeather()
+    elseif visualType == "skybox" then ApplySkybox()
+    elseif visualType == "textures" then ApplyTextures()
+    else
+        warn("[World Visuals] Unknown visual type:", visualType)
+    end
+end
+
+-- Update configuration and apply
+function WorldVisuals:SetConfig(category, settings)
+    if CONFIG[category] then
+        for key, value in pairs(settings) do
+            if CONFIG[category][key] ~= nil then
+                CONFIG[category][key] = value
+            end
+        end
+        self:Apply(category)
+    end
+end
+
+-- Get current configuration
+function WorldVisuals:GetConfig()
+    return CONFIG
+end
+
+-- Preset configurations
+function WorldVisuals:LoadPreset(presetName)
+    if presetName == "stormy_night" then
+        CONFIG.weather.enabled = true
+        CONFIG.weather.type = "rain"
+        CONFIG.skybox.enabled = true
+        CONFIG.skybox.preset = "stormy"
+        CONFIG.world_time.enabled = true
+        CONFIG.world_time.hour = 0
+        CONFIG.background_noise.enabled = true
+        CONFIG.background_noise.sound = "thunderstorm"
+        CONFIG.ambient.enabled = true
+        CONFIG.ambient.indoor_color = Color3.fromRGB(80, 80, 100)
+        CONFIG.ambient.outdoor_color = Color3.fromRGB(60, 60, 80)
+        
+    elseif presetName == "winter_wonderland" then
+        CONFIG.weather.enabled = true
+        CONFIG.weather.type = "snow"
+        CONFIG.skybox.enabled = true
+        CONFIG.skybox.preset = "realistic"
+        CONFIG.world_time.enabled = true
+        CONFIG.world_time.hour = 12
+        CONFIG.background_noise.enabled = true
+        CONFIG.background_noise.sound = "windy winter"
+        CONFIG.saturation.enabled = true
+        CONFIG.saturation.value = -0.3
+        
+    elseif presetName == "cyberpunk" then
+        CONFIG.skybox.enabled = true
+        CONFIG.skybox.preset = "pink"
+        CONFIG.world_time.enabled = true
+        CONFIG.world_time.hour = 22
+        CONFIG.tint.enabled = true
+        CONFIG.tint.color = Color3.fromRGB(255, 100, 200)
+        CONFIG.saturation.enabled = true
+        CONFIG.saturation.value = 0.5
+        CONFIG.contrast.enabled = true
+        CONFIG.contrast.value = 0.3
+        
+    elseif presetName == "peaceful_day" then
+        CONFIG.skybox.enabled = true
+        CONFIG.skybox.preset = "realistic"
+        CONFIG.world_time.enabled = true
+        CONFIG.world_time.hour = 14
+        CONFIG.background_noise.enabled = true
+        CONFIG.background_noise.sound = "day"
+        CONFIG.weather.enabled = false
+        
+    elseif presetName == "void" then
+        CONFIG.skybox.enabled = true
+        CONFIG.skybox.preset = "black storm"
+        CONFIG.world_time.enabled = true
+        CONFIG.world_time.hour = 0
+        CONFIG.ambient.enabled = true
+        CONFIG.ambient.indoor_color = Color3.fromRGB(10, 10, 10)
+        CONFIG.ambient.outdoor_color = Color3.fromRGB(5, 5, 5)
+        CONFIG.saturation.enabled = true
+        CONFIG.saturation.value = -0.8
+    end
+    
+    self:ApplyAll()
+    print("[World Visuals] Loaded preset:", presetName)
+end
+
+-- Reset everything to original
+function WorldVisuals:Reset()
+    -- Disable all effects
+    for category, settings in pairs(CONFIG) do
+        if type(settings) == "table" and settings.enabled ~= nil then
+            settings.enabled = false
+        end
+    end
+    
+    self:ApplyAll()
+    print("[World Visuals] Reset to original settings")
+end
+
+-- Start the system
+function WorldVisuals:Start()
+    if UpdateConnection then
+        warn("[World Visuals] Already running!")
+        return
+    end
+    
+    UpdateConnection = RunService.Heartbeat:Connect(OnHeartbeat)
+    self:ApplyAll()
+    print("[World Visuals] Started")
+end
+
+-- Stop the system
+function WorldVisuals:Stop()
+    if UpdateConnection then
+        UpdateConnection:Disconnect()
+        UpdateConnection = nil
+    end
+    
+    self:Reset()
+    print("[World Visuals] Stopped")
+end
+
+
+
+-- ========================================
+-- USAGE EXAMPLES
+-- ========================================
+
+--[[
+
+-- Load a preset
+WorldVisuals:LoadPreset("stormy_night")
+WorldVisuals:LoadPreset("winter_wonderland")
+WorldVisuals:LoadPreset("cyberpunk")
+
+-- Configure individual settings
+WorldVisuals:SetConfig("weather", {
+    enabled = true,
+    type = "snow",
+    color = Color3.fromRGB(200, 220, 255),
+    rate = 80
+})
+
+WorldVisuals:SetConfig("world_time", {
+    enabled = true,
+    hour = 18.5
+})
+
+WorldVisuals:SetConfig("atmosphere", {
+    enabled = true,
+    color = Color3.fromRGB(150, 200, 255),
+    density = 0.5,
+    haze = 2
+})
+
+-- Manual configuration
+local config = WorldVisuals:GetConfig()
+config.skybox.enabled = true
+config.skybox.preset = "blue space"
+config.background_noise.enabled = true
+config.background_noise.sound = "night"
+WorldVisuals:ApplyAll()
+
+-- Reset to original
+WorldVisuals:Reset()
+
+-- Apply specific visual
+WorldVisuals:Apply("weather")
+WorldVisuals:Apply("skybox")
+
+-- Stop the system
+WorldVisuals:Stop()
+
+]]
+
+return WorldVisuals
