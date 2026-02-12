@@ -11,11 +11,7 @@ if getgenv().unload_juju then
 	task.wait(1)
 end
 
-if game["GameId"] ~= 1008451066 then
-	game:GetService("Players")["LocalPlayer"]:Kick("hi")
-	while true do end
-	return
-end
+
 
 local is_solara = hookmetamethod == nil or getgenv().Xeno
 
@@ -102,10 +98,7 @@ if not is_solara then
 				coroutine.close(v);
 			end;
 
-			if count < 2 then
-				game:GetService("Players")["LocalPlayer"]:Kick("juju > anticheat has updated, please wait for an update. this is for your safety <3 (TC)")
-				return
-			end
+			
 
 			getgenv().done = true
 		end;
@@ -113,10 +106,7 @@ if not is_solara then
 
 	task.wait(1)
 
-	if not getgenv().done then
-		game:GetService("Players")["LocalPlayer"]:Kick("juju > anticheat has updated, please wait for an update. this is for your safety <3 (D)")
-		return
-	end
+	
 end
 
 if is_solara then
@@ -348,12 +338,7 @@ LPH_JIT_MAX(function()
 end)()
 
 if not arg or #arg < 2 then
-	if getgenv().Xeno then
-		arg = "UpdateMousePosI2"
-	else
-		lplr:Kick("juju > if the game updated recently, please wait for an update")
-		return
-	end
+	
 end
 
 do
@@ -15920,3 +15905,5 @@ if crew then
 		lplr_data["crew"] = crew.Value
 	end)
 end
+
+print("Loaded")
