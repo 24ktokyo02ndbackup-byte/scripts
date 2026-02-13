@@ -1,0 +1,190 @@
+-- ====================================================================
+--  PARTICLE AURA SYSTEM (from juju)
+--  Attaches particle effects to your local character
+-- ====================================================================
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Particle aura presets (pre-made particle effects)
+local particle_auras = {
+    ["starlight"] = game:GetObjects("rbxassetid://134645216613107")[1],
+    ["heavenly"] = game:GetObjects("rbxassetid://139300897520961")[1],
+    ["ribbon"] = game:GetObjects("rbxassetid://132069507632161")[1],
+    ["sakura"] = game:GetObjects("rbxassetid://81755778619404")[1],
+    ["angel"] = game:GetObjects("rbxassetid://97658130917593")[1],
+    ["wind"] = game:GetObjects("rbxassetid://80694081850877")[1],
+    ["flow"] = game:GetObjects("rbxassetid://119913533725648")[1],
+    ["star"] = game:GetObjects("rbxassetid://73754563740680")[1],
+}
+
+-- Current settings
+local current_aura = "angel"
+local current_color = Color3.fromRGB(133, 220, 255)
+local aura_enabled = false
+
+-- Active particles array
+local particles = {}
+
+-- Body parts that particles can attach to
+local body_parts = {
+    "Head", "UpperTorso", "LowerTorso",
+    "LeftUpperArm", "LeftLowerArm", "LeftHand",
+    "RightUpperArm", "RightLowerArm", "RightHand",
+    "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+    "RightUpperLeg", "RightLowerLeg", "RightFoot"
+}
+
+-- Function to apply particle aura to character
+local function applyParticleAura()
+    -- Clean up existing particles
+    for i = 1, #particles do
+        if particles[i] then
+            particles[i]:Destroy()
+        end
+    end
+    particles = {}
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    -- Clone the selected aura
+    local aura_model = particle_auras[current_aura]
+    if not aura_model then return end
+    
+    local cloned = aura_model:Clone()
+    local children = cloned:GetChildren()
+    
+    -- Attach particles to corresponding body parts
+    for i = 1, #children do
+        local part = children[i]
+        local part_name = part.Name
+        
+        -- Find matching body part on character
+        local target_part = character:FindFirstChild(part_name)
+        
+        if target_part then
+            -- Get all particle emitters/beams/trails from this part
+            local effects = part:GetChildren()
+            
+            for j = 1, #effects do
+                local effect = effects[j]
+                
+                -- Apply color
+                if effect:IsA("ParticleEmitter") or effect:IsA("Beam") or effect:IsA("Trail") then
+                    effect.Color = ColorSequence.new(current_color)
+                elseif effect:IsA("PointLight") then
+                    effect.Color = current_color
+                end
+                
+                -- Parent to character part
+                effect.Name = "\0\0" -- Hidden name
+                effect.Parent = target_part
+                
+                -- Track for cleanup
+                table.insert(particles, effect)
+            end
+        end
+        
+        part:Destroy()
+    end
+    
+    cloned:Destroy()
+end
+
+-- Update particle colors
+local function updateParticleColors(new_color)
+    current_color = new_color
+    local color_sequence = ColorSequence.new(new_color)
+    
+    -- Update all active particles
+    for i = 1, #particles do
+        local particle = particles[i]
+        
+        if particle then
+            if particle:IsA("ParticleEmitter") or particle:IsA("Beam") or particle:IsA("Trail") then
+                particle.Color = color_sequence
+            elseif particle:IsA("PointLight") then
+                particle.Color = new_color
+            end
+        end
+    end
+    
+    -- Update stored aura templates
+    for aura_name, aura_model in pairs(particle_auras) do
+        if aura_model and typeof(aura_model) ~= "string" then
+            local descendants = aura_model:GetDescendants()
+            
+            for i = 1, #descendants do
+                local part = descendants[i]
+                
+                if part:IsA("ParticleEmitter") or part:IsA("Beam") or part:IsA("Trail") then
+                    part.Color = color_sequence
+                elseif part:IsA("PointLight") then
+                    part.Color = new_color
+                end
+            end
+        end
+    end
+end
+
+-- Change aura type
+local function setAuraType(aura_type)
+    if particle_auras[aura_type] then
+        current_aura = aura_type
+        
+        if aura_enabled then
+            applyParticleAura()
+        end
+    end
+end
+
+-- Toggle aura on/off
+local function toggleAura(enabled)
+    aura_enabled = enabled
+    
+    if enabled then
+        applyParticleAura()
+        
+        -- Reapply on respawn
+        LocalPlayer.CharacterAdded:Connect(function(character)
+            character:WaitForChild("HumanoidRootPart", 5)
+            if aura_enabled then
+                task.wait(0.1)
+                applyParticleAura()
+            end
+        end)
+    else
+        -- Clean up
+        for i = 1, #particles do
+            if particles[i] then
+                particles[i]:Destroy()
+            end
+        end
+        particles = {}
+    end
+end
+
+-- ====================================================================
+--  PUBLIC API
+-- ====================================================================
+
+return {
+    -- Enable/disable aura
+    toggle = toggleAura,
+    
+    -- Change aura type: "starlight", "heavenly", "ribbon", "sakura", "angel", "wind", "flow", "star"
+    setType = setAuraType,
+    
+    -- Change color
+    setColor = updateParticleColors,
+    
+    -- Manually reapply (useful after respawn)
+    apply = applyParticleAura,
+    
+    -- Available aura types
+    types = {"starlight", "heavenly", "ribbon", "sakura", "angel", "wind", "flow", "star"}
+}
