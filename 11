@@ -19288,10 +19288,6 @@ do
             end
         end
 
-        if not shoot or not getinfo(shoot).source:find("Gun") then
-            local_player:Kick("Please rejoin.")
-            return
-        end
     end
 
     local get_closest_to_mouse_position = LPH_NO_VIRTUALIZE(function(dt, hrp)
